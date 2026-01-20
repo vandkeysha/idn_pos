@@ -43,7 +43,7 @@ class PrinterSelector extends StatelessWidget {
               ),
             ),
           ),
-          if (isConnected) 
+          if (isConnected)  // KONDISI KETIKA BLUETOOTHNYA UDH TERKONEKSI
             Container(
               width: 10,
               height: 10,
