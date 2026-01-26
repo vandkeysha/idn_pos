@@ -1,6 +1,12 @@
 import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import 'package:flutter/material.dart';
 import 'package:idn_pos/models/products.dart';
+import 'package:idn_pos/screens/cashier/components/checkout_panel.dart';
+import 'package:idn_pos/screens/cashier/components/printer_selector.dart';
+import 'package:idn_pos/screens/cashier/components/product_card.dart';
+import 'package:idn_pos/screens/cashier/components/qr_result_modal.dart';
+import 'package:idn_pos/utils/currency_format.dart';
+import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class CashierScreen extends StatefulWidget {
@@ -57,7 +63,7 @@ class _CashierScreenState extends State<CashierScreen> {
     });
   }
 
-  void _connectedToDevice(BluetoothDevice? device) {
+  void _connectToDevice(BluetoothDevice? device) {
     // if / kondisi utama , yang memeplopori if-if selanjutnya
     if (device != null) { // jika device tidak null (nenek)
 
@@ -110,10 +116,134 @@ class _CashierScreenState extends State<CashierScreen> {
   }
 
   //LOGIKA PRINTING
-  
+  void _handlePrint() async {
+    int total = _calculateTotal();
+    if (total == 0 ) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Keranjang masih kosong!"))
+      );
+    }
+
+    String trxId = "TRX-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}";//untuk membuat id transaksi unik berdasarkan waktu skrg
+    String qrData = "PAY :$trxId:$total"; // data yg akan di encode ke qr code
+    bool isPrinting = false;
+
+    // menyiapkan tanggal saat ini (current date)
+    DateTime now = DateTime.now(); // mendapatkan tanggal dan waktu saat ini
+    String formattedDate = DateFormat('dd-MM-yyyy HH:mm').format(now); // untuk menyimpan format tanggal dan waktu dengan rapi
+
+    // LAYOUTING STRUK PRINTING
+    if (_selectedDevice != null && await bluetooth.isConnected == true) {
+      // header struk 
+      bluetooth.printNewLine();  // untuk ngasih enteran baru
+      bluetooth.printCustom("IDN CAFE", 3, 1); // nama cafe, judul besar (center)
+      bluetooth.printNewLine();
+      bluetooth.printCustom("JL. Bagus Dayeuh,", 1, 1); // alamat cafe, text sedang (center)
+
+      //tanggal dan id transaksi
+      bluetooth.printNewLine();
+      bluetooth.printLeftRight("Waktu:", formattedDate, 1);
+
+      // data items
+      bluetooth.printCustom("--------------------------------", 1, 1);
+      _cart.forEach((product, qty) {
+        String priceTotal = formatRupiah(product.price * qty);
+        // untuk cetak nama barang X qty 
+        bluetooth.printLeftRight("${product.name} x${qty}", priceTotal, 1);
+      });
+      bluetooth.printCustom("--------------------------------", 1, 1);
+      // total & qr
+      bluetooth.printLeftRight("TOTAL", formatRupiah(total), 3);
+      bluetooth.printNewLine();
+      bluetooth.printCustom("Scan QR dibawah:", 1, 1);
+      bluetooth.printQRcode(qrData, 200, 200, 1);// mencetak qr code
+      bluetooth.printNewLine();
+      bluetooth.printCustom("ThankYou!", 1, 1);
+      bluetooth.printNewLine();
+      bluetooth.printNewLine();
+
+      isPrinting = true;
+      }
+
+      //untuk menampilkan modal hasil Qr code yang bentuknya adalah popup
+      _showQRModal(qrData, total, isPrinting);
+  }
+
+  void _showQRModal(String qrData, int total, bool isPrinting){
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => QrResultModal(
+        qrData: qrData,
+        total: total,
+        isPrinting: isPrinting,
+        onClose: () => Navigator.pop(context),
+      )
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
-    return const Placeholder();
+    return Scaffold(
+      backgroundColor: Color(0xFFF5F7FA),
+      appBar: AppBar(
+        title: Text(
+          "Menu Kasir",
+          style: TextStyle(
+            color: Colors.black87,
+            fontWeight: FontWeight.bold
+          ),
+        ),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        iconTheme: IconThemeData(color: Colors.black87),
+        centerTitle: true,
+      ),
+      body: Column(
+        children: [
+          // DROPDWON SELECT PRINTER BLUETOOTH
+          PrinterSelector(
+            devices: _devices,
+            selectedDevice: _selectedDevice,
+            isConnected: _Connected,
+            onSelected: _connectToDevice,
+          ),
+
+          // GRID FOR PRODUCT LIST
+          Expanded(
+          child: GridView.builder(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              childAspectRatio: 0.8,
+              crossAxisSpacing: 15,
+              mainAxisExtent: 15
+            ),
+            itemCount: menus.length,
+            itemBuilder: (context, index){
+              final product = menus[index];
+              final qty = _cart[product] ?? 0;
+
+              // PEMANGGILA PRODUCT LIST PADA PRODUCT CARD
+              return ProductCard(
+                product: product,
+                qty: qty,
+                onAdd: () => _addToCart(product),
+                onRemove: () => _removeFromCart(product),
+              );
+            },
+          ),
+          ),
+
+          // BOTTOM SHEET PANEL
+          CheckoutPanel(
+            total: _calculateTotal(),
+            onPressed: _handlePrint,
+          )
+        ],
+      ),
+    );
   }
 }
